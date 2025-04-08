@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>لعبة الذرة - تأثيرات واقعية</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            touch-action: manipulation;
+            user-select: none;
+            background: #121212;
+        }
+        #atom-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .nucleus {
+            width: 40px;
+            height: 40px;
+            background: radial-gradient(circle, #ff3333, #b30000);
+            border-radius: 50%;
+            position: absolute;
+            box-shadow: 0 0 20px #ff0000;
+            z-index: 1;
+        }
+        .orbit-path {
+            position: absolute;
+            border: 1px dashed rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+        .electron {
+            width: 18px;
+            height: 18px;
+            background: radial-gradient(circle, #66b3ff, #0066cc);
+            border-radius: 50%;
+            position: absolute;
+            box-shadow: 0 0 15px #3399ff;
+            z-index: 10;
+            transition: all 1.5s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+        }
+        .electron.excited {
+            background: radial-gradient(circle, #ffcc00, #ff9900);
+            box-shadow: 0 0 25px #ffcc00;
+            animation: pulse 1.5s infinite alternate;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            100% { transform: scale(1.2); }
+        }
+        .energy-particle {
+            position: absolute;
+            width: 6px;
+            height: 6px;
+            background-color: #ffff00;
+            border-radius: 50%;
+            z-index: 5;
+            pointer-events: none;
+            animation: particle-move 0.8s forwards;
+        }
+        @keyframes particle-move {
+            0% { opacity: 0.9; transform: scale(0.7); }
+            100% { opacity: 0; transform: scale(1.3); }
+        }
+        .photon-beam {
+            position: absolute;
+            height: 2px;
+            background: linear-gradient(90deg, 
+                rgba(255,0,0,0.8), 
+                rgba(255,165,0,0.8), 
+                rgba(255,255,0,0.8));
+            z-index: 3;
+            transform-origin: left center;
+            opacity: 0;
+            animation: beam-fade 1.2s forwards;
+            box-shadow: 0 0 8px yellow;
+        }
+        @keyframes beam-fade {
+            0% { opacity: 0; width: 0; }
+            30% { opacity: 1; width: 30px; }
+            100% { opacity: 0; width: 60px; }
+        }
+        #info {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            border-radius: 24px;
+            font-size: 16px;
+            z-index: 100;
+            max-width: 90%;
+            text-align: center;
+        }
+        #energy-indicator {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-size: 14px;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <div id="atom-container">
+        <!-- النواة -->
+        <div class="nucleus" id="nucleus"></div>
+        
+        <!-- مدارات الطاقة -->
+        <div class="orbit-path" id="orbit1" style="width: 200px; height: 200px;"></div>
+        <div class="orbit-path" id="orbit2" style="width: 300px; height: 300px;"></div>
+        <div class="orbit-path" id="orbit3" style="width: 400px; height: 400px;"></div>
+        <div class="orbit-path" id="orbit4" style="width: 500px; height: 500px;"></div>
+        
+        <!-- الإلكترونات -->
+        <div class="electron" id="electron1" data-level="1" data-angle="0"></div>
+        <div class="electron" id="electron2" data-level="2" data-angle="1.5"></div>
+        <div class="electron" id="electron3" data-level="3" data-angle="3"></div>
+        <div class="electron" id="electron4" data-level="4" data-angle="4.5"></div>
+    </div>
+    
+    <div id="info">المس بالقرب من أي إلكترون لنقل الطاقة إليه</div>
+    <div id="energy-indicator">الطاقة: 0%</div>
+
+    <script>
+        // العناصر الرئيسية
+        const container = document.getElementById('atom-container');
+        const nucleus = document.getElementById('nucleus');
+        const orbits = Array.from(document.querySelectorAll('.orbit-path'));
+        const electrons = Array.from(document.querySelectorAll('.electron'));
+        const infoDiv = document.getElementById('info');
+        const energyIndicator = document.getElementById('energy-indicator');
+        
+        // أحجام المدارات
+        const orbitRadii = [100, 150, 200, 250];
+        let center = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+        let activeTouch = null;
+        let energyTransferInterval;
+        let currentEnergy = 0;
+        
+        // تهيئة المواقع
+        function initPositions() {
+            // وضع النواة في المركز
+            nucleus.style.left = `${center.x}px`;
+            nucleus.style.top = `${center.y}px`;
+            
+            // وضع المدارات
+            orbits.forEach(orbit => {
+                orbit.style.left = `${center.x}px`;
+                orbit.style.top = `${center.y}px`;
+            });
+            
+            // تحديث مواقع الإلكترونات
+            updateElectrons();
+        }
+        
+        // حركة الإلكترونات الدائرية البطيئة
+        function updateElectrons() {
+            electrons.forEach((electron, index) => {
+                const level = parseInt(electron.getAttribute('data-level'));
+                const speed = 0.0015 * (level + 0.5);
+                
+                let angle = parseFloat(electron.getAttribute('data-angle'));
+                angle += speed;
+                electron.setAttribute('data-angle', angle);
+                
+                const radius = orbitRadii[level - 1];
+                const x = center.x + radius * Math.cos(angle);
+                const y = center.y + radius * Math.sin(angle);
+                
+                electron.style.left = `${x}px`;
+                electron.style.top = `${y}px`;
+            });
+            
+            requestAnimationFrame(updateElectrons);
+        }
+        
+        // إنشاء جسيمات طاقة تتحرك نحو الإلكترون
+        function createEnergyParticles(touchX, touchY, targetElectron) {
+            const targetRect = targetElectron.getBoundingClientRect();
+            const targetX = targetRect.left + targetRect.width / 2;
+            const targetY = targetRect.top + targetRect.height / 2;
+            
+            for (let i = 0; i < 2; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'energy-particle';
+                
+                // وضع عشوائي قرب نقطة اللمس
+                const startX = touchX + (Math.random() * 30 - 15);
+                const startY = touchY + (Math.random() * 30 - 15);
+                
+                particle.style.left = `${startX}px`;
+                particle.style.top = `${startY}px`;
+                
+                // حركة نحو الإلكترون
+                const anim = particle.animate([
+                    { left: `${startX}px`, top: `${startY}px` },
+                    { left: `${targetX}px`, top: `${targetY}px` }
+                ], {
+                    duration: 600,
+                    easing: 'cubic-bezier(0.4, 0, 0.2, 1)'
+                });
+                
+                container.appendChild(particle);
+                
+                anim.onfinish = () => {
+                    particle.remove();
+                    // تأثير عند وصول الطاقة للإلكترون
+                    if (i === 0) {
+                        targetElectron.style.transform = 'scale(1.1)';
+                        setTimeout(() => {
+                            targetElectron.style.transform = 'scale(1)';
+                        }, 100);
+                    }
+                };
+            }
+        }
+        
+        // بدء نقل الطاقة
+        function startEnergyTransfer(x, y) {
+            // البحث عن أقرب إلكترون
+            const closest = findClosestElectron(x, y);
+            if (!closest) return;
+            
+            const { electron, distance } = closest;
+            if (parseInt(electron.getAttribute('data-level')) >= 4) {
+                infoDiv.textContent = "هذا الإلكترون في أعلى مستوى طاقة!";
+                return;
+            }
+            
+            activeTouch = { x, y, electron };
+            currentEnergy = 0;
+            updateEnergyIndicator();
+            
+            // نقل الطاقة المستمر
+            energyTransferInterval = setInterval(() => {
+                if (!activeTouch) return;
+                
+                createEnergyParticles(activeTouch.x, activeTouch.y, activeTouch.electron);
+                currentEnergy += 3;
+                updateEnergyIndicator();
+                
+                if (currentEnergy >= 100) {
+                    exciteElectron(activeTouch.electron);
+                    stopEnergyTransfer();
+                }
+            }, 100);
+        }
+        
+        // إثارة الإلكترون
+        function exciteElectron(electron) {
+            const currentLevel = parseInt(electron.getAttribute('data-level'));
+            const newLevel = currentLevel + 1;
+            
+            electron.classList.add('excited');
+            electron.setAttribute('data-level', newLevel);
+            
+            infoDiv.textContent = `تم إثارة الإلكترون إلى المستوى ${newLevel}!`;
+            
+            // العودة بعد 3 ثوان
+            setTimeout(() => {
+                returnElectronToOriginalLevel(electron, currentLevel);
+            }, 3000);
+        }
+        
+        // عودة الإلكترون لمستواه الأصلي
+        function returnElectronToOriginalLevel(electron, originalLevel) {
+            electron.classList.remove('excited');
+            electron.setAttribute('data-level', originalLevel);
+            
+            // إنشاء شعاع ضوئي قصير
+            createPhotonBeam(electron);
+            infoDiv.textContent = `عاد الإلكترون إلى المستوى ${originalLevel}!`;
+        }
+        
+        // إنشاء شعاع ضوئي قصير
+        function createPhotonBeam(electron) {
+            const rect = electron.getBoundingClientRect();
+            const startX = rect.left + rect.width / 2;
+            const startY = rect.top + rect.height / 2;
+            
+            // اتجاه عشوائي
+            const angle = Math.random() * Math.PI * 2;
+            const endX = startX + Math.cos(angle) * 60;
+            const endY = startY + Math.sin(angle) * 60;
+            
+            const beam = document.createElement('div');
+            beam.className = 'photon-beam';
+            beam.style.left = `${startX}px`;
+            beam.style.top = `${startY}px`;
+            beam.style.transform = `rotate(${Math.atan2(endY - startY, endX - startX)}rad)`;
+            
+            container.appendChild(beam);
+            
+            setTimeout(() => {
+                beam.remove();
+            }, 1200);
+        }
+        
+        // البحث عن أقرب إلكترون
+        function findClosestElectron(x, y) {
+            let closest = null;
+            let minDistance = Infinity;
+            
+            electrons.forEach(electron => {
+                const rect = electron.getBoundingClientRect();
+                const elX = rect.left + rect.width / 2;
+                const elY = rect.top + rect.height / 2;
+                
+                const distance = Math.sqrt(Math.pow(x - elX, 2) + Math.pow(y - elY, 2));
+                const level = parseInt(electron.getAttribute('data-level'));
+                const orbitRadius = orbitRadii[level - 1];
+                
+                if (distance < orbitRadius + 50 && distance > orbitRadius - 50) {
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        closest = { electron, distance };
+                    }
+                }
+            });
+            
+            return closest;
+        }
+        
+        // تحديث مؤشر الطاقة
+        function updateEnergyIndicator() {
+            energyIndicator.textContent = `الطاقة: ${Math.min(currentEnergy, 100)}%`;
+        }
+        
+        // إيقاف نقل الطاقة
+        function stopEnergyTransfer() {
+            clearInterval(energyTransferInterval);
+            activeTouch = null;
+            currentEnergy = 0;
+            updateEnergyIndicator();
+        }
+        
+        // معالجة أحداث اللمس
+        container.addEventListener('mousedown', (e) => {
+            startEnergyTransfer(e.clientX, e.clientY);
+        });
+        
+        container.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if (e.touches.length > 0) {
+                startEnergyTransfer(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        }, { passive: false });
+        
+        container.addEventListener('mouseup', stopEnergyTransfer);
+        container.addEventListener('mouseleave', stopEnergyTransfer);
+        container.addEventListener('touchend', stopEnergyTransfer);
+        
+        // بدء اللعبة
+        window.onload = initPositions;
+        window.onresize = () => {
+            center.x = window.innerWidth / 2;
+            center.y = window.innerHeight / 2;
+            initPositions();
+        };
+    </script>
+</body>
+</html>
